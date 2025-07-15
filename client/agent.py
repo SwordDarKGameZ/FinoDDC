@@ -3,6 +3,30 @@ import json
 import os
 import time
 import subprocess
+import logging
+import sys
+
+# Logging setup: log ทุกอย่างลง agent.log
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s',
+    handlers=[
+        logging.FileHandler("agent.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+# redirect print, error ไป log
+class LoggerWriter:
+    def __init__(self, level):
+        self.level = level
+    def write(self, message):
+        message = message.rstrip()
+        if message:
+            self.level(message)
+    def flush(self):
+        pass
+sys.stdout = LoggerWriter(logging.info)
+sys.stderr = LoggerWriter(logging.error)
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'agent_config.json')
 import platform
