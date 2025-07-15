@@ -304,17 +304,29 @@ def main():
                 elif cmd['command'] == "reinstall":
 
                     def write_unattend_xml():
-                        unattend_xml = '''<?xml version="1.0" encoding="utf-8"?>
+                        # --- ดึง machine_name เดิมจาก agent_config.json เพื่อ fix hostname หลัง reinstall ---
+                        import json
+                        config_path = r"C:\project\ddcweb\client\agent_config.json"
+                        machine_name = "WINAGENT"
+                        try:
+                            with open(config_path, "r", encoding="utf-8") as f:
+                                config = json.load(f)
+                                if "machine_name" in config:
+                                    machine_name = config["machine_name"]
+                        except Exception as e:
+                            print(f"[reinstall] WARNING: Cannot read machine_name from agent_config.json, use default: {machine_name}")
+                        unattend_xml = fr'''<?xml version="1.0" encoding="utf-8"?>
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
   <settings pass="oobeSystem">
-    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
-      <InputLocale>en-US</InputLocale>
-      <SystemLocale>en-US</SystemLocale>
-      <UILanguage>en-US</UILanguage>
-      <UILanguageFallback>en-US</UILanguageFallback>
-      <UserLocale>en-US</UserLocale>
-    </component>
     <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+      <ComputerName>{machine_name}</ComputerName>
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>Run Agent Auto Setup</Description>
+          <CommandLine>cmd /c "C:\\project\\ddcweb\\client\\auto_setup_agent.bat"</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
       <OOBE>
         <HideEULAPage>true</HideEULAPage>
         <NetworkLocation>Work</NetworkLocation>
