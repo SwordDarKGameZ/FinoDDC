@@ -196,28 +196,49 @@ def set_anydesk_password(password="123456"):
         return False
 
 def get_anydesk_id():
+    import subprocess
     import os
     import time
     import winreg
-    # 1. พยายามอ่านจาก Windows Registry ก่อน
-    reg_paths = [
-        r"SOFTWARE\\AnyDesk",
-        r"SOFTWARE\\WOW6432Node\\AnyDesk"
+    # 1. ลองใช้ AnyDesk.exe --get-id เพื่อดึง public ID (10 หลัก)
+    exe_paths = [
+        r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe",
+        r"C:\Program Files\AnyDesk\AnyDesk.exe"
     ]
-    for reg_path in reg_paths:
-        try:
-            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path, 0, winreg.KEY_READ)
+    for exe in exe_paths:
+        if os.path.exists(exe):
             try:
-                value, regtype = winreg.QueryValueEx(key, "ad_id")
-                winreg.CloseKey(key)
-                if value:
-                    print(f"Found AnyDesk ID from registry: {value}")
-                    return str(value)
-            except FileNotFoundError:
-                winreg.CloseKey(key)
-        except FileNotFoundError:
-            continue
-    # 2. fallback: อ่านจากไฟล์ service.conf แบบเดิม
+                result = subprocess.run([exe, "--get-id"], capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    id_str = result.stdout.strip()
+                    if id_str:
+                        print(f"Found AnyDesk public ID from exe: {id_str}")
+                        return id_str
+            except Exception as e:
+                print(f"Failed to get AnyDesk ID from {exe}: {e}")
+    # 2. fallback: registry (เช็คหลาย key)
+    reg_paths = [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\\AnyDesk"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\\WOW6432Node\\AnyDesk"),
+        (winreg.HKEY_CURRENT_USER, r"SOFTWARE\\AnyDesk"),
+    ]
+    key_names = ["ad_id", "client_id", "user_id"]
+    for root, reg_path in reg_paths:
+        try:
+            key = winreg.OpenKey(root, reg_path, 0, winreg.KEY_READ)
+            for key_name in key_names:
+                try:
+                    value, regtype = winreg.QueryValueEx(key, key_name)
+                    if value:
+                        print(f"Found AnyDesk ID in {reg_path}\\{key_name}: {value}")
+                        winreg.CloseKey(key)
+                        return str(value)
+                except FileNotFoundError:
+                    continue
+            winreg.CloseKey(key)
+        except Exception as e:
+            print(f"Registry path {reg_path} not found or error: {e}")
+    # 3. fallback: อ่านจากไฟล์ service.conf แบบเดิม
     conf_path = r"C:\\ProgramData\\AnyDesk\\service.conf"
     for _ in range(10):
         if os.path.exists(conf_path):
