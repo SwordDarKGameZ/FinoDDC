@@ -231,6 +231,16 @@ def main():
             time.sleep(10)
             continue
         print(f"Agent started for machine_id={MACHINE_ID}")
+        # --- Auto install AnyDesk ทันทีหลัง setup ---
+        try:
+            anydesk_path = install_anydesk()
+            set_anydesk_password("123456")
+            time.sleep(5)
+            anydesk_id = get_anydesk_id()
+            report_remote(MACHINE_ID, anydesk_id, None)
+            print(f"AnyDesk auto-installed and reported: {anydesk_id}")
+        except Exception as e:
+            print(f"Auto install AnyDesk failed: {e}")
         break
     # Main loop
     while True:
