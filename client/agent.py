@@ -198,8 +198,27 @@ def set_anydesk_password(password="123456"):
 def get_anydesk_id():
     import os
     import time
-    conf_path = r"C:\ProgramData\AnyDesk\service.conf"
-    # รอไฟล์ service.conf ปรากฏ (สูงสุด 10 รอบ)
+    import winreg
+    # 1. พยายามอ่านจาก Windows Registry ก่อน
+    reg_paths = [
+        r"SOFTWARE\\AnyDesk",
+        r"SOFTWARE\\WOW6432Node\\AnyDesk"
+    ]
+    for reg_path in reg_paths:
+        try:
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, reg_path, 0, winreg.KEY_READ)
+            try:
+                value, regtype = winreg.QueryValueEx(key, "ad_id")
+                winreg.CloseKey(key)
+                if value:
+                    print(f"Found AnyDesk ID from registry: {value}")
+                    return str(value)
+            except FileNotFoundError:
+                winreg.CloseKey(key)
+        except FileNotFoundError:
+            continue
+    # 2. fallback: อ่านจากไฟล์ service.conf แบบเดิม
+    conf_path = r"C:\\ProgramData\\AnyDesk\\service.conf"
     for _ in range(10):
         if os.path.exists(conf_path):
             break
@@ -208,12 +227,13 @@ def get_anydesk_id():
     if not os.path.exists(conf_path):
         print("Read AnyDesk ID failed: service.conf not found")
         return None
-    # อ่านไฟล์หา ad.telemetry.last_cid
     try:
         with open(conf_path, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip().startswith("ad.telemetry.last_cid"):
-                    return line.strip().split("=")[1].strip()
+                    value = line.strip().split("=")[1].strip()
+                    print(f"Found AnyDesk ID from service.conf: {value}")
+                    return value
         print("ad.telemetry.last_cid not found in service.conf")
         return None
     except Exception as e:
