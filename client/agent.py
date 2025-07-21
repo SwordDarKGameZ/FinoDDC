@@ -32,6 +32,15 @@ CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'agent_config.json')
 import platform
 
 def ensure_agent_config():
+    import shutil
+    backup_path = os.path.join(os.path.dirname(__file__), 'agent_config.backup.json')
+    # ถ้า agent_config.json หาย แต่ backup อยู่ ให้ restore อัตโนมัติ
+    if not os.path.exists(CONFIG_PATH) and os.path.exists(backup_path):
+        try:
+            shutil.copy2(backup_path, CONFIG_PATH)
+            print(f"[restore] agent_config.json not found, restored from backup.")
+        except Exception as e:
+            print(f"[restore][ERROR] Cannot restore agent_config.json: {e}")
     # โหลด config ถ้ามี
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, 'r') as f:
@@ -42,11 +51,17 @@ def ensure_agent_config():
     else:
         config = {}
     # ถ้ายังไม่มี agent_api_key หรือ machine_name ให้ register ใหม่
+    print("[setup] ไม่พบ agent_config.json กรุณากรอก set_id (ตัวเลข) ของเครื่องนี้:")
+    set_id = None
+    while not set_id:
+        try:
+            set_id = int(input("set_id: ").strip())
+        except Exception:
+            print("[setup] set_id ต้องเป็นตัวเลขเท่านั้น!")
+            set_id = None
     api_url = config.get('api_url') or 'http://127.0.0.1:8000'  # fallback ถ้าไม่ได้ตั้ง
-    set_id = config.get('set_id')
-    if not set_id:
-        raise Exception('agent_config.json ต้องมี set_id')
     machine_name = platform.node()
+    print(f"[setup] Registering agent... set_id={set_id}, machine_name={machine_name}")
     resp = requests.post(f'{api_url}/machine/register', json={
         'set_id': set_id,
         'machine_name': machine_name
@@ -60,7 +75,9 @@ def ensure_agent_config():
     config['agent_api_key'] = data['agent_api_key']
     with open(CONFIG_PATH, 'w') as f:
         json.dump(config, f, indent=2)
+    print("[setup] agent_config.json created and registered successfully.")
     return config
+
 
 config = ensure_agent_config()
 API_URL = config['api_url']
@@ -304,17 +321,36 @@ def main():
                 elif cmd['command'] == "reinstall":
 
                     def write_unattend_xml():
-                        # --- ดึง machine_name เดิมจาก agent_config.json เพื่อ fix hostname หลัง reinstall ---
                         import json
-                        config_path = r"C:\project\ddcweb\client\agent_config.json"
+                        import shutil
+                        import ctypes
+                        import os
+                        stealth_dir = os.path.join(os.environ['ProgramData'], 'Microsoft', 'Windows', 'ddcagent')  # universal & stealth
+                        if not os.path.exists(stealth_dir):
+                            os.makedirs(stealth_dir, exist_ok=True)
+                        config_path = os.path.join(stealth_dir, 'agent_config.json')
+                        backup_path = os.path.join(stealth_dir, 'agent_config.backup.json')
                         machine_name = "WINAGENT"
+                        # Backup config และ auto_setup_agent.bat ไป path stealth ก่อน sysprep
+                        try:
+                            shutil.copy2(config_path, backup_path)
+                            print(f"[reinstall] Backup agent_config.json -> {backup_path}")
+                        except Exception as e:
+                            print(f"[reinstall][ERROR] Cannot backup agent_config.json: {e}")
+                        try:
+                            src_bat = os.path.join(os.path.dirname(__file__), 'auto_setup_agent.bat')
+                            dst_bat = os.path.join(stealth_dir, 'auto_setup_agent.bat')
+                            shutil.copy2(src_bat, dst_bat)
+                            print(f"[reinstall] Copy auto_setup_agent.bat -> {dst_bat}")
+                        except Exception as e:
+                            print(f"[reinstall][ERROR] Cannot copy auto_setup_agent.bat: {e}")
                         try:
                             with open(config_path, "r", encoding="utf-8") as f:
                                 config = json.load(f)
                                 if "machine_name" in config:
                                     machine_name = config["machine_name"]
                         except Exception as e:
-                            print(f"[reinstall] WARNING: Cannot read machine_name from agent_config.json, use default: {machine_name}")
+                            print(f"[reinstall][WARNING] Cannot read machine_name from agent_config.json, use default: {machine_name}")
                         unattend_xml = fr'''<?xml version="1.0" encoding="utf-8"?>
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
   <settings pass="oobeSystem">
@@ -323,10 +359,31 @@ def main():
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
+          <Description>Install Python</Description>
+          <CommandLine>powershell -ExecutionPolicy Bypass -Command "Start-Process -FilePath powershell -ArgumentList '-ExecutionPolicy Bypass -Command \"Invoke-WebRequest -Uri https://www.python.org/ftp/python/3.11.8/python-3.11.8-amd64.exe -OutFile C:\\Windows\\Temp\\python_installer.exe; Start-Process -FilePath C:\\Windows\\Temp\\python_installer.exe -ArgumentList \\\"/quiet InstallAllUsers=1 PrependPath=1\\\" -Wait\"' -Wait"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Description>Install AnyDesk</Description>
+          <CommandLine>powershell -ExecutionPolicy Bypass -Command "Start-Process -FilePath powershell -ArgumentList '-ExecutionPolicy Bypass -Command \"Invoke-WebRequest -Uri https://download.anydesk.com/AnyDesk.exe -OutFile C:\\Windows\\Temp\\AnyDesk.exe; Start-Process -FilePath C:\\Windows\\Temp\\AnyDesk.exe -ArgumentList \\\"/install /silent\\\" -Wait\"' -Wait"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Description>Set AnyDesk Password</Description>
+          <CommandLine>powershell -ExecutionPolicy Bypass -File C:\\Windows\\Temp\\set_anydesk_pw.ps1 -NoProfile -WindowStyle Hidden -Wait</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>4</Order>
           <Description>Run Agent Auto Setup</Description>
-          <CommandLine>cmd /c "C:\\project\\ddcweb\\client\\auto_setup_agent.bat"</CommandLine>
+          <CommandLine>cmd /c \"%ProgramData%\\Microsoft\\Windows\\ddcagent\\auto_setup_agent.bat\"</CommandLine>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <Order>5</Order>
+          <Description>Report AnyDesk Info</Description>
+          <CommandLine>powershell -ExecutionPolicy Bypass -File C:\\Windows\\Temp\\report_anydesk.ps1 -NoProfile -WindowStyle Hidden -Wait</CommandLine>
         </SynchronousCommand>
       </FirstLogonCommands>
+
       <OOBE>
         <HideEULAPage>true</HideEULAPage>
         <NetworkLocation>Work</NetworkLocation>
@@ -349,13 +406,16 @@ def main():
       </UserAccounts>
       <AutoLogon>
         <Username>FinoDDC</Username>
+        <Password>
+          <Value>123456</Value>
+          <PlainText>true</PlainText>
+        </Password>
         <Enabled>true</Enabled>
         <!-- LogonCount removed for infinite auto login -->
       </AutoLogon>
       <TimeZone>SE Asia Standard Time</TimeZone>
       <RegisteredOwner>DDC</RegisteredOwner>
       <RegisteredOrganization>PC Rental</RegisteredOrganization>
-      <ComputerName>*</ComputerName>
       <FirstLogonCommands>
         <SynchronousCommand wcm:action="add">
           <Order>1</Order>
